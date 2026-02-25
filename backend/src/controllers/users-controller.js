@@ -5,7 +5,7 @@ const prisma = require('../utils/prisma');
 
 const getUsers = async (req, res) => {
   try {
-    const { role, active, search } = req.query;
+    const { role, active, search, limit = 50, offset = 0 } = req.query;
 
     const where = {};
 
@@ -32,19 +32,27 @@ const getUsers = async (req, res) => {
       ];
     }
 
-    const users = await prisma.users.findMany({
-      where,
-      include: {
-        roles: true,
-        user_profiles: true,
-        organizations: true,
-      },
-      orderBy: {
-        created_at: 'desc',
-      },
-    });
+    const [users, total] = await Promise.all([
+      prisma.users.findMany({
+        where,
+        include: {
+          roles: true,
+          user_profiles: true,
+          organizations: true,
+        },
+        orderBy: {
+          created_at: 'desc',
+        },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.users.count({ where }),
+    ]);
 
-    res.json({ users });
+    res.json({
+      users,
+      pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
+    });
   } catch (error) {
     console.error('GetUsers error:', error);
     res.status(500).json({ error: 'Ошибка при получении пользователей' });
@@ -62,7 +70,7 @@ const getUserById = async (req, res) => {
         roles: true,
         user_profiles: true,
         organizations: true,
-        ...(req.user.role_id === 1 && {
+        ...(req.user.roles.name === 'admin' && {
           audit_logs: true,
           contract_status_history: true,
           ticket_status_history: true,
@@ -291,8 +299,6 @@ const deleteUser = async (req, res) => {
       where: { id: userId },
       data: {
         is_active: false,
-        email: `${user.email}_deleted_${Date.now()}`,
-        phone: user.phone ? `${user.phone}_deleted` : null,
       },
     });
 

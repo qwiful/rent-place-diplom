@@ -2,20 +2,31 @@ const prisma = require('../utils/prisma');
 
 const getOrganizations = async (req, res) => {
   try {
-    const organizations = await prisma.organizations.findMany({
-      orderBy: { created_at: 'desc' },
-      include: {
-        _count: {
-          select: {
-            users: true,
-            business_centers: true,
-            contracts_contracts_landlord_organization_idToorganizations: true,
-            contracts_contracts_tenant_organization_idToorganizations: true,
+    const { limit = 50, offset = 0 } = req.query;
+
+    const [organizations, total] = await Promise.all([
+      prisma.organizations.findMany({
+        orderBy: { created_at: 'desc' },
+        include: {
+          _count: {
+            select: {
+              users: true,
+              business_centers: true,
+              contracts_contracts_landlord_organization_idToorganizations: true,
+              contracts_contracts_tenant_organization_idToorganizations: true,
+            },
           },
         },
-      },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.organizations.count(),
+    ]);
+
+    res.json({
+      organizations,
+      pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
     });
-    res.json({ organizations });
   } catch (error) {
     console.error('GetOrganizations error:', error);
     res.status(500).json({ error: 'Ошибка при получении списка организаций' });

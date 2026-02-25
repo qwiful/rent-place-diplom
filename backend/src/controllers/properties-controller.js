@@ -14,8 +14,16 @@ const canModifyProperty = async (propertyId, user) => {
 
 const getProperties = async (req, res) => {
   try {
-    const { status, minPrice, maxPrice, area, business_center_id, manager_id } =
-      req.query;
+    const {
+      status,
+      minPrice,
+      maxPrice,
+      area,
+      business_center_id,
+      manager_id,
+      limit = 50,
+      offset = 0,
+    } = req.query;
 
     const where = {};
 
@@ -34,18 +42,26 @@ const getProperties = async (req, res) => {
       where.area = parseFloat(area);
     }
 
-    const properties = await prisma.rental_objects.findMany({
-      where,
-      include: {
-        business_centers: true,
-        users: {
-          include: { user_profiles: true },
+    const [properties, total] = await Promise.all([
+      prisma.rental_objects.findMany({
+        where,
+        include: {
+          business_centers: true,
+          users: {
+            include: { user_profiles: true },
+          },
         },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+        orderBy: { created_at: 'desc' },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.rental_objects.count({ where }),
+    ]);
 
-    res.json({ properties });
+    res.json({
+      properties,
+      pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
+    });
   } catch (error) {
     console.error('GetProperties error:', error);
     res.status(500).json({ error: 'Ошибка при получении списка помещений' });

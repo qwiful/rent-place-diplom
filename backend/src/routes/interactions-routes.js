@@ -22,7 +22,7 @@ router.get(
 );
 router.get('/:id', getInteractionById);
 
-router.post('/', authorize('admin', 'manager'), createInteraction);
+router.post('/', createInteraction);
 router.put('/:id', authorize('admin', 'manager'), updateInteraction);
 router.delete('/:id', authorize('admin', 'manager'), deleteInteraction);
 

@@ -80,6 +80,12 @@ const register = async (req, res) => {
       { expiresIn: process.env.JWT_EXPIRES_IN },
     );
 
+    const refreshSecret =
+      process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET + '_refresh';
+    const refreshToken = jwt.sign({ userId: result.id }, refreshSecret, {
+      expiresIn: '30d',
+    });
+
     const userWithProfile = await prisma.users.findUnique({
       where: { id: result.id },
       include: { user_profiles: true, roles: true },
@@ -89,6 +95,7 @@ const register = async (req, res) => {
       message: 'Пользователь успешно зарегистрирован',
       user: userWithProfile,
       token,
+      refreshToken,
     });
   } catch (error) {
     console.error('Register error:', error);

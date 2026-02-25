@@ -18,6 +18,13 @@ const canAccessContract = async (contractId, user, action = 'read') => {
     if (!contract) return false;
     return contract.rental_objects?.manager_id === user.id;
   }
+  if (user.roles.name === 'tenant' && action === 'read') {
+    const contract = await prisma.contracts.findUnique({
+      where: { id: contractId },
+    });
+    if (!contract) return false;
+    return contract.tenant_user_id === user.id;
+  }
   return false;
 };
 
@@ -31,13 +38,27 @@ const getManagedPropertyIds = async (managerId) => {
 
 const getContracts = async (req, res) => {
   try {
-    const { status, tenant_type, tenant_id, property_id } = req.query;
+    const {
+      status,
+      tenant_type,
+      tenant_id,
+      property_id,
+      limit = 50,
+      offset = 0,
+    } = req.query;
     let where = {};
 
     if (req.user.roles.name === 'manager') {
       const propertyIds = await getManagedPropertyIds(req.user.id);
       if (propertyIds.length === 0) {
-        return res.json({ contracts: [] });
+        return res.json({
+          contracts: [],
+          pagination: {
+            total: 0,
+            limit: parseInt(limit),
+            offset: parseInt(offset),
+          },
+        });
       }
       where.rental_object_id = { in: propertyIds };
     }
@@ -51,26 +72,34 @@ const getContracts = async (req, res) => {
       where.tenant_organization_id = parseInt(tenant_id);
     }
 
-    const contracts = await prisma.contracts.findMany({
-      where,
-      include: {
-        rental_objects: {
-          include: { business_centers: true },
+    const [contracts, total] = await Promise.all([
+      prisma.contracts.findMany({
+        where,
+        include: {
+          rental_objects: {
+            include: { business_centers: true },
+          },
+          users: {
+            include: { user_profiles: true },
+          },
+          organizations_contracts_tenant_organization_idToorganizations: true,
+          organizations_contracts_landlord_organization_idToorganizations: true,
+          contract_status_history: {
+            orderBy: { change_date: 'desc' },
+            take: 1,
+          },
         },
-        users: {
-          include: { user_profiles: true },
-        },
-        organizations_contracts_tenant_organization_idToorganizations: true,
-        organizations_contracts_landlord_organization_idToorganizations: true,
-        contract_status_history: {
-          orderBy: { change_date: 'desc' },
-          take: 1,
-        },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+        orderBy: { created_at: 'desc' },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.contracts.count({ where }),
+    ]);
 
-    res.json({ contracts });
+    res.json({
+      contracts,
+      pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
+    });
   } catch (error) {
     console.error('GetContracts error:', error);
     res.status(500).json({ error: 'Ошибка при получении списка договоров' });
@@ -259,7 +288,12 @@ const updateContract = async (req, res) => {
       return res.status(404).json({ error: 'Договор не найден' });
     }
 
+    const changeReason = data.change_reason;
     delete data.contract_number;
+    delete data.change_reason;
+    delete data.id;
+    delete data.created_at;
+    delete data.updated_at;
 
     const statusChanged = data.status && data.status !== existing.status;
 
@@ -309,7 +343,7 @@ const updateContract = async (req, res) => {
           old_status: existing.status,
           new_status: data.status,
           changed_by_user_id: req.user.id,
-          change_reason: data.change_reason || 'Status updated',
+          change_reason: changeReason || 'Status updated',
         },
       });
     }

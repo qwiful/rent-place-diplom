@@ -42,8 +42,15 @@ const canModifyTicket = async (ticketId, user) => {
 
 const getTickets = async (req, res) => {
   try {
-    const { status, priority, contract_id, assigned_to, creator_id } =
-      req.query;
+    const {
+      status,
+      priority,
+      contract_id,
+      assigned_to,
+      creator_id,
+      limit = 50,
+      offset = 0,
+    } = req.query;
     let where = {};
 
     if (req.user.roles.name === 'manager') {
@@ -66,25 +73,33 @@ const getTickets = async (req, res) => {
     if (creator_id && req.user.roles.name === 'admin')
       where.creator_id = parseInt(creator_id);
 
-    const tickets = await prisma.service_tickets.findMany({
-      where,
-      include: {
-        users_service_tickets_creator_idTousers: {
-          include: { user_profiles: true },
-        },
-        users_service_tickets_assigned_manager_idTousers: {
-          include: { user_profiles: true },
-        },
-        contracts: {
-          include: {
-            rental_objects: true,
+    const [tickets, total] = await Promise.all([
+      prisma.service_tickets.findMany({
+        where,
+        include: {
+          users_service_tickets_creator_idTousers: {
+            include: { user_profiles: true },
+          },
+          users_service_tickets_assigned_manager_idTousers: {
+            include: { user_profiles: true },
+          },
+          contracts: {
+            include: {
+              rental_objects: true,
+            },
           },
         },
-      },
-      orderBy: { created_at: 'desc' },
-    });
+        orderBy: { created_at: 'desc' },
+        take: parseInt(limit),
+        skip: parseInt(offset),
+      }),
+      prisma.service_tickets.count({ where }),
+    ]);
 
-    res.json({ tickets });
+    res.json({
+      tickets,
+      pagination: { total, limit: parseInt(limit), offset: parseInt(offset) },
+    });
   } catch (error) {
     console.error('GetTickets error:', error);
     res.status(500).json({ error: 'Ошибка при получении списка заявок' });
@@ -321,19 +336,28 @@ const getOpenTickets = async (req, res) => {
 
 const getMyTickets = async (req, res) => {
   try {
-    if (req.user.roles.name !== 'tenant') {
+    let where = {};
+
+    if (req.user.roles.name === 'tenant') {
+      where.creator_id = req.user.id;
+    } else if (req.user.roles.name === 'manager') {
+      where.assigned_manager_id = req.user.id;
+    } else if (req.user.roles.name === 'admin') {
       return res
-        .status(403)
-        .json({ error: 'Этот эндпоинт только для арендаторов' });
+        .status(400)
+        .json({ error: 'Используйте основной список заявок' });
     }
 
     const tickets = await prisma.service_tickets.findMany({
-      where: { creator_id: req.user.id },
+      where,
       include: {
         contracts: {
           include: {
             rental_objects: true,
           },
+        },
+        users_service_tickets_creator_idTousers: {
+          include: { user_profiles: true },
         },
         users_service_tickets_assigned_manager_idTousers: {
           include: { user_profiles: true },
@@ -473,9 +497,14 @@ const updateTicketStatus = async (req, res) => {
       return res.status(404).json({ error: 'Заявка не найдена' });
     }
 
+    const updateData = { status };
+    if (status === 'completed' && !existing.completion_date) {
+      updateData.completion_date = new Date();
+    }
+
     const updated = await prisma.service_tickets.update({
       where: { id: ticketId },
-      data: { status },
+      data: updateData,
     });
 
     await prisma.ticket_status_history.create({
@@ -487,13 +516,6 @@ const updateTicketStatus = async (req, res) => {
         change_reason: reason || 'Status changed',
       },
     });
-
-    if (status === 'completed' && !existing.completion_date) {
-      await prisma.service_tickets.update({
-        where: { id: ticketId },
-        data: { completion_date: new Date() },
-      });
-    }
 
     res.json({
       message: 'Статус обновлен',

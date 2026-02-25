@@ -26,22 +26,23 @@ const getInteractions = async (req, res) => {
     if (contract_id) {
       const contractId = parseInt(contract_id);
       if (!(await canAccessContractInteractions(contractId, req.user))) {
-        return res
-          .status(403)
-          .json({
-            error:
-              'У вас нет прав на просмотр взаимодействий по этому договору',
-          });
+        return res.status(403).json({
+          error: 'У вас нет прав на просмотр взаимодействий по этому договору',
+        });
       }
       where.contract_id = contractId;
     } else {
-      if (req.user.roles.name === 'tenant') {
-        return res
-          .status(403)
-          .json({
-            error:
-              'Арендатор может просматривать взаимодействия только по конкретному договору',
-          });
+      if (req.user.roles.name === 'manager') {
+        const managedContracts = await prisma.contracts.findMany({
+          where: { rental_objects: { manager_id: req.user.id } },
+          select: { id: true },
+        });
+        where.contract_id = { in: managedContracts.map((c) => c.id) };
+      } else if (req.user.roles.name === 'tenant') {
+        return res.status(403).json({
+          error:
+            'Арендатор может просматривать взаимодействия только по конкретному договору',
+        });
       }
     }
 
@@ -114,11 +115,9 @@ const createInteraction = async (req, res) => {
     if (
       !(await canAccessContractInteractions(parseInt(contract_id), req.user))
     ) {
-      return res
-        .status(403)
-        .json({
-          error: 'У вас нет прав на создание взаимодействий по этому договору',
-        });
+      return res.status(403).json({
+        error: 'У вас нет прав на создание взаимодействий по этому договору',
+      });
     }
 
     const interaction = await prisma.interactions.create({
@@ -156,11 +155,9 @@ const updateInteraction = async (req, res) => {
     if (
       !(await canAccessContractInteractions(existing.contract_id, req.user))
     ) {
-      return res
-        .status(403)
-        .json({
-          error: 'У вас нет прав на редактирование этого взаимодействия',
-        });
+      return res.status(403).json({
+        error: 'У вас нет прав на редактирование этого взаимодействия',
+      });
     }
 
     const updated = await prisma.interactions.update({
@@ -223,11 +220,9 @@ const getInteractionsByContract = async (req, res) => {
     const contractIdInt = parseInt(contractId);
 
     if (!(await canAccessContractInteractions(contractIdInt, req.user))) {
-      return res
-        .status(403)
-        .json({
-          error: 'У вас нет прав на просмотр взаимодействий по этому договору',
-        });
+      return res.status(403).json({
+        error: 'У вас нет прав на просмотр взаимодействий по этому договору',
+      });
     }
 
     const interactions = await prisma.interactions.findMany({
