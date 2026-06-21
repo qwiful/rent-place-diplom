@@ -1,184 +1,118 @@
-const prisma = require('../utils/prisma');
-
-const getPropertiesReport = async (req, res) => {
-  try {
-    const total = await prisma.rental_objects.count();
-    const byStatus = await prisma.rental_objects.groupBy({
-      by: ['status'],
-      _count: true,
-    });
-    const avgPrice = await prisma.rental_objects.aggregate({
-      _avg: { price_per_month: true },
-      _sum: { area: true },
-    });
-
-    res.json({
-      report: {
-        total,
-        byStatus,
-        avgPricePerMonth: avgPrice._avg.price_per_month,
-        totalArea: avgPrice._sum.area,
-      },
-    });
-  } catch (error) {
-    console.error('PropertiesReport error:', error);
-    res
-      .status(500)
-      .json({ error: 'Ошибка при формировании отчёта по помещениям' });
-  }
-};
-
-const getContractsReport = async (req, res) => {
-  try {
-    const total = await prisma.contracts.count();
-    const byStatus = await prisma.contracts.groupBy({
-      by: ['status'],
-      _count: true,
-    });
-    const activeCount = await prisma.contracts.count({
-      where: { status: 'active' },
-    });
-    const expiringSoon = await prisma.contracts.count({
-      where: {
-        status: 'active',
-        end_date: {
-          lte: new Date(new Date().setDate(new Date().getDate() + 30)),
-        },
-      },
-    });
-
-    res.json({
-      report: {
-        total,
-        byStatus,
-        activeContracts: activeCount,
-        expiringIn30Days: expiringSoon,
-      },
-    });
-  } catch (error) {
-    console.error('ContractsReport error:', error);
-    res
-      .status(500)
-      .json({ error: 'Ошибка при формировании отчёта по договорам' });
-  }
-};
-
-const getTicketsReport = async (req, res) => {
-  try {
-    const total = await prisma.service_tickets.count();
-    const byStatus = await prisma.service_tickets.groupBy({
-      by: ['status'],
-      _count: true,
-    });
-    const byPriority = await prisma.service_tickets.groupBy({
-      by: ['priority'],
-      _count: true,
-    });
-
-    const avgResolutionTime = await prisma.$queryRaw`
-      SELECT AVG(EXTRACT(EPOCH FROM (completion_date - created_at)) / 3600) as avg_hours
-      FROM service_tickets
-      WHERE status = 'completed' AND completion_date IS NOT NULL AND created_at IS NOT NULL
-    `;
-
-    const avgHours = avgResolutionTime[0]?.avg_hours
-      ? parseFloat(Number(avgResolutionTime[0].avg_hours).toFixed(2))
-      : null;
-
-    res.json({
-      report: {
-        total,
-        byStatus,
-        byPriority,
-        avgResolutionTimeHours: avgHours,
-      },
-    });
-  } catch (error) {
-    console.error('TicketsReport error:', error);
-    res
-      .status(500)
-      .json({ error: 'Ошибка при формировании отчёта по заявкам' });
-  }
-};
-
-const getFinancialReport = async (req, res) => {
-  try {
-    const activeContracts = await prisma.contracts.findMany({
-      where: { status: 'active' },
-      select: { monthly_rent: true },
-    });
-    const totalMonthlyIncome = activeContracts.reduce(
-      (sum, c) => sum + Number(c.monthly_rent),
-      0,
-    );
-
-    const contractsByMonth = await prisma.$queryRaw`
-      SELECT 
-        DATE_TRUNC('month', start_date) as month,
-        COUNT(*) as count,
-        SUM(monthly_rent) as total_rent
-      FROM contracts
-      WHERE status = 'active'
-      GROUP BY DATE_TRUNC('month', start_date)
-      ORDER BY month DESC
-    `;
-
-    res.json({
-      report: {
-        totalMonthlyIncome,
-        monthlyBreakdown: contractsByMonth,
-      },
-    });
-  } catch (error) {
-    console.error('FinancialReport error:', error);
-    res
-      .status(500)
-      .json({ error: 'Ошибка при формировании финансового отчёта' });
-  }
-};
+const prisma = require('../utils/prisma')
 
 const getOccupancyReport = async (req, res) => {
   try {
-    const centers = await prisma.business_centers.findMany({
-      include: {
-        rental_objects: {
-          select: { status: true },
-        },
-      },
-    });
+    let where = {}
+    if (req.user.roles.name === 'manager') {
+      const managedProperties = await prisma.rental_objects.findMany({
+        where: { manager_id: req.user.id },
+        select: { id: true },
+      })
+      const propertyIds = managedProperties.map((p) => p.id)
+      if (propertyIds.length === 0) {
+        return res.json({
+          total: 0,
+          available: 0,
+          occupied: 0,
+          reserved: 0,
+          under_renovation: 0,
+          byBusinessCenter: [],
+        })
+      }
+      where.id = { in: propertyIds }
+    }
 
-    const report = centers.map((center) => {
-      const total = center.rental_objects.length;
-      const occupied = center.rental_objects.filter(
-        (obj) => obj.status === 'occupied',
-      ).length;
-      const available = center.rental_objects.filter(
-        (obj) => obj.status === 'available',
-      ).length;
-      const occupancyRate = total ? ((occupied / total) * 100).toFixed(2) : 0;
-      return {
-        centerId: center.id,
-        centerName: center.name,
-        totalRooms: total,
-        occupied,
-        available,
-        occupancyRate: `${occupancyRate}%`,
-      };
-    });
+    const properties = await prisma.rental_objects.findMany({
+      where,
+      include: { business_centers: true },
+    })
 
-    res.json({ report });
+    const total = properties.length
+    const available = properties.filter((p) => p.status === 'available').length
+    const occupied = properties.filter((p) => p.status === 'occupied').length
+    const reserved = properties.filter((p) => p.status === 'reserved').length
+    const under_renovation = properties.filter(
+      (p) => p.status === 'under_renovation',
+    ).length
+
+    const bcMap = new Map()
+    properties.forEach((p) => {
+      const bcName = p.business_centers?.name || 'Без БЦ'
+      if (!bcMap.has(bcName)) {
+        bcMap.set(bcName, { available: 0, occupied: 0, reserved: 0, total: 0 })
+      }
+      const stats = bcMap.get(bcName)
+      stats.total++
+      if (p.status === 'available') stats.available++
+      if (p.status === 'occupied') stats.occupied++
+      if (p.status === 'reserved') stats.reserved++
+    })
+    const byBusinessCenter = Array.from(bcMap, ([name, stats]) => ({
+      name,
+      ...stats,
+    }))
+
+    res.json({
+      total,
+      available,
+      occupied,
+      reserved,
+      under_renovation,
+      byBusinessCenter,
+    })
   } catch (error) {
-    console.error('OccupancyReport error:', error);
-    res
-      .status(500)
-      .json({ error: 'Ошибка при формировании отчёта по заполняемости' });
+    console.error('GetOccupancyReport error:', error)
+    res.status(500).json({ error: 'Ошибка получения отчёта по заполняемости' })
   }
-};
+}
+
+const getTicketsReport = async (req, res) => {
+  try {
+    let where = {}
+    if (req.user.roles.name === 'manager') {
+      const managedContracts = await prisma.contracts.findMany({
+        where: {
+          rental_objects: { manager_id: req.user.id },
+        },
+        select: { id: true },
+      })
+      const contractIds = managedContracts.map((c) => c.id)
+      where.contract_id = { in: contractIds }
+    } else if (req.user.roles.name !== 'admin') {
+      return res.status(403).json({ error: 'Доступ запрещён' })
+    }
+
+    const tickets = await prisma.service_tickets.findMany({
+      where,
+      select: { status: true, priority: true },
+    })
+
+    const byStatus = {
+      new: 0,
+      in_progress: 0,
+      on_hold: 0,
+      completed: 0,
+      cancelled: 0,
+    }
+    const byPriority = {
+      low: 0,
+      medium: 0,
+      high: 0,
+      critical: 0,
+    }
+    tickets.forEach((t) => {
+      if (t.status) byStatus[t.status]++
+      if (t.priority) byPriority[t.priority]++
+    })
+
+    res.json({ byStatus, byPriority, total: tickets.length })
+  } catch (error) {
+    console.error('GetTicketsReport error:', error)
+    res.status(500).json({ error: 'Ошибка получения отчёта по заявкам' })
+  }
+}
 
 module.exports = {
-  getPropertiesReport,
-  getContractsReport,
-  getTicketsReport,
-  getFinancialReport,
   getOccupancyReport,
-};
+  getTicketsReport,
+}

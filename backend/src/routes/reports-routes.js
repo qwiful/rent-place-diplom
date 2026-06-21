@@ -1,21 +1,13 @@
-const express = require('express');
-const router = express.Router();
-const { authenticate, authorize } = require('../middleware/auth-middleware');
+const express = require('express')
+const router = express.Router()
+const { authenticate, authorize } = require('../middleware/auth-middleware')
 const {
-  getPropertiesReport,
-  getContractsReport,
-  getTicketsReport,
-  getFinancialReport,
   getOccupancyReport,
-} = require('../controllers/reports-controller');
+  getTicketsReport,
+} = require('../controllers/reports-controller')
 
-router.use(authenticate);
-router.use(authorize('admin', 'manager'));
+router.use(authenticate)
+router.get('/occupancy', authorize('manager', 'admin'), getOccupancyReport)
+router.get('/tickets', authorize('manager', 'admin'), getTicketsReport)
 
-router.get('/properties', getPropertiesReport);
-router.get('/contracts', getContractsReport);
-router.get('/tickets', getTicketsReport);
-router.get('/financial', getFinancialReport);
-router.get('/occupancy', getOccupancyReport);
-
-module.exports = router;
+module.exports = router

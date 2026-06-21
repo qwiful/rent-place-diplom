@@ -1,4 +1,5 @@
 const prisma = require('../utils/prisma');
+const { INTERACTION_TYPES, validateEnum } = require('../utils/enums');
 
 const canAccessContractInteractions = async (contractId, user) => {
   if (user.roles.name === 'admin') return true;
@@ -112,6 +113,11 @@ const createInteraction = async (req, res) => {
         .json({ error: 'contract_id, type и content обязательны' });
     }
 
+    const typeCheck = validateEnum(type, INTERACTION_TYPES, 'type');
+    if (!typeCheck.valid) {
+      return res.status(400).json({ error: typeCheck.error });
+    }
+
     if (
       !(await canAccessContractInteractions(parseInt(contract_id), req.user))
     ) {
@@ -144,6 +150,13 @@ const updateInteraction = async (req, res) => {
     const { id } = req.params;
     const interactionId = parseInt(id);
     const { type, content } = req.body;
+
+    if (type) {
+      const typeCheck = validateEnum(type, INTERACTION_TYPES, 'type');
+      if (!typeCheck.valid) {
+        return res.status(400).json({ error: typeCheck.error });
+      }
+    }
 
     const existing = await prisma.interactions.findUnique({
       where: { id: interactionId },

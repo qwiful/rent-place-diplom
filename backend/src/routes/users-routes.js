@@ -1,6 +1,6 @@
-const express = require('express');
-const router = express.Router();
-const { authenticate, authorize } = require('../middleware/auth-middleware');
+const express = require('express')
+const router = express.Router()
+const { authenticate, authorize } = require('../middleware/auth-middleware')
 const {
   getUsers,
   getUserById,
@@ -11,20 +11,27 @@ const {
   changeStatus,
   getUserProfile,
   updateUserProfile,
-} = require('../controllers/users-controller');
+  getCurrentUser,
+  updateCurrentUserProfile,
+  changePassword,
+} = require('../controllers/users-controller')
 
-router.use(authenticate);
+router.use(authenticate)
 
-router.get('/', authorize('admin', 'manager'), getUsers);
-router.get('/:id', getUserById);
-router.post('/', authorize('admin'), createUser);
-router.put('/:id', updateUser);
-router.delete('/:id', authorize('admin'), deleteUser);
+router.get('/me', getCurrentUser)
+router.put('/profile', updateCurrentUserProfile)
+router.post('/change-password', changePassword)
 
-router.patch('/:id/role', authorize('admin'), changeRole);
-router.patch('/:id/status', authorize('admin'), changeStatus);
+router.get('/', authorize('admin', 'manager'), getUsers)
+router.get('/:id', getUserById)
+router.post('/', authorize('admin'), createUser)
+router.put('/:id', updateUser)
+router.delete('/:id', authorize('admin'), deleteUser)
 
-router.get('/:id/profiles', getUserProfile);
-router.put('/:id/profiles', updateUserProfile);
+router.patch('/:id/role', authorize('admin'), changeRole)
+router.patch('/:id/status', authorize('admin'), changeStatus)
 
-module.exports = router;
+router.get('/:id/profiles', getUserProfile)
+router.put('/:id/profiles', updateUserProfile)
+
+module.exports = router

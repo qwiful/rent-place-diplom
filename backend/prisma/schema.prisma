@@ -126,6 +126,9 @@ model rental_objects {
   contracts          contracts[]
   business_centers   business_centers    @relation(fields: [business_center_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   users              users?              @relation(fields: [manager_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  photos             Json?               @default("[]")
+  viewing_requests   viewing_requests[]
+  favorites          favorites[]
 
   @@index([price_per_month], map: "idx_rental_objects_price")
   @@index([status], map: "idx_rental_objects_status")
@@ -207,11 +210,73 @@ model users {
   service_tickets_service_tickets_assigned_manager_idTousers service_tickets[]         @relation("service_tickets_assigned_manager_idTousers")
   service_tickets_service_tickets_creator_idTousers          service_tickets[]         @relation("service_tickets_creator_idTousers")
   ticket_status_history                                      ticket_status_history[]
-  user_profiles                                              user_profiles?
+  user_profiles                                               user_profiles?
   roles                                                      roles                     @relation(fields: [role_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  organizations                                              organizations?              @relation(fields: [organization_id], references: [id])
+  organizations                                              organizations?            @relation(fields: [organization_id], references: [id])
+  viewing_requests_created                                   viewing_requests[]        @relation("viewing_requests_user_idTousers")
+  viewing_requests_processed                                 viewing_requests[]        @relation("viewing_requests_processed_byTousers")
+  favorites                                                  favorites[]
+  notifications                                               notifications[]
 
   @@index([role_id], map: "idx_users_role")
+}
+
+model viewing_requests {
+  id               Int                  @id @default(autoincrement())
+  rental_object_id Int
+  user_id          Int
+  preferred_date   DateTime             @db.Date
+  preferred_time   String               @db.VarChar(10)
+  status           viewing_request_status @default(pending)
+  scheduled_date   DateTime?            @db.Date
+  scheduled_time   String?              @db.VarChar(10)
+  user_notes       String?
+  manager_notes    String?
+  processed_by     Int?
+  processed_at     DateTime?
+  created_at       DateTime?            @default(now()) @db.Timestamp(6)
+
+  rental_objects   rental_objects       @relation(fields: [rental_object_id], references: [id], onDelete: Cascade)
+  users_viewing_requests_user_idTousers           users   @relation("viewing_requests_user_idTousers", fields: [user_id], references: [id])
+  users_viewing_requests_processed_byTousers      users?  @relation("viewing_requests_processed_byTousers", fields: [processed_by], references: [id])
+
+  @@index([rental_object_id])
+  @@index([user_id])
+  @@index([status])
+}
+
+model favorites {
+  id               Int            @id @default(autoincrement())
+  user_id          Int
+  rental_object_id Int
+  users            users          @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  rental_objects   rental_objects @relation(fields: [rental_object_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, rental_object_id])
+}
+
+model notifications {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  type        String   @db.VarChar(50)
+  title       String   @db.VarChar(200)
+  message     String
+  entity_type String?  @db.VarChar(50)
+  entity_id   Int?
+  status      String   @default("unread") @db.VarChar(20)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  read_at     DateTime?
+  users       users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, status])
+}
+
+enum viewing_request_status {
+  pending
+  approved
+  rejected
+  completed
+  cancelled
 }
 
 enum contract_status_enum {
