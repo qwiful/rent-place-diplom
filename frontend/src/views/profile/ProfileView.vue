@@ -250,16 +250,30 @@ function openCreateTicketModal() {
   showCreateTicketModal.value = true
 }
 
-async function submitTicket() {
+const submitTicket = async () => {
   if (!newTicket.value.contract_id || !newTicket.value.title) {
-    alert('Заполните обязательные поля')
+    alert('Заполните обязательные поля (договор и тему)')
     return
   }
+
+  const payload = {
+    contract_id: Number(newTicket.value.contract_id),
+    title: newTicket.value.title.trim(),
+    description: newTicket.value.description.trim() || '',
+    type: newTicket.value.type,
+    priority: newTicket.value.priority,
+    author_id: auth.user.id,
+  }
+
+  console.log('Отправка заявки:', payload)
+
   try {
-    await ticketsStore.createTicket(newTicket.value)
+    await ticketsStore.createTicket(payload)
     showCreateTicketModal.value = false
     showSuccess('Заявка создана')
+    await ticketsStore.fetchTickets()
   } catch (err) {
+    console.error('Ошибка создания заявки:', err.response?.data)
     alert(err.response?.data?.error || 'Ошибка при создании заявки')
   }
 }

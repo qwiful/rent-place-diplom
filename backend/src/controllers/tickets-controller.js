@@ -185,17 +185,6 @@ const createTicket = async (req, res) => {
       where: { id: contract_id },
       include: { rental_objects: { select: { manager_id: true } } },
     })
-    if (contract?.rental_objects?.manager_id) {
-      await createNotification(
-        contract.rental_objects.manager_id,
-        'ticket',
-        'Новая заявка',
-        `По договору №${contract.contract_number}: ${title}`,
-        'Ticket',
-        ticket.id,
-      )
-    }
-
     if (!contract) {
       return res.status(400).json({ error: 'Договор не найден' })
     }
@@ -208,6 +197,7 @@ const createTicket = async (req, res) => {
       }
     }
 
+    // 1. Создаём заявку
     const ticket = await prisma.service_tickets.create({
       data: {
         creator_id: req.user.id,
@@ -220,6 +210,19 @@ const createTicket = async (req, res) => {
       },
     })
 
+    // 2. Отправляем уведомление менеджеру, если есть
+    if (contract?.rental_objects?.manager_id) {
+      await createNotification(
+        contract.rental_objects.manager_id,
+        'ticket',
+        'Новая заявка',
+        `По договору №${contract.contract_number}: ${title}`,
+        'Ticket',
+        ticket.id, // теперь ticket определена
+      )
+    }
+
+    // 3. Запись истории
     await prisma.ticket_status_history.create({
       data: {
         ticket_id: ticket.id,
@@ -565,6 +568,16 @@ const updateTicketStatus = async (req, res) => {
   } catch (error) {
     console.error('UpdateTicketStatus error:', error)
     res.status(500).json({ error: 'Ошибка при обновлении статуса' })
+  }
+  if (existing?.creator_id) {
+    await createNotification(
+      existing.creator_id,
+      'ticket',
+      'Статус заявки изменён',
+      `Заявка "${existing.title}" → ${status}.`,
+      'Ticket',
+      ticketId,
+    )
   }
 }
 
